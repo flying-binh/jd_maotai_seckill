@@ -338,12 +338,15 @@ class JdSeckill(object):
         """
         预约
         """
-        while True:
+        max_run_times = int(global_config.getRaw('config', 'run_times'))
+        run_times = 0
+        while run_times < max_run_times:
             try:
-                self.make_reserve()
+                self.make_reserve(max_run_times)
                 break
             except Exception as e:
                 logger.info('预约发生异常!', e)
+            run_times = run_times + 1
             wait_some_time()
 
     def _seckill(self):
@@ -360,26 +363,20 @@ class JdSeckill(object):
                 logger.info('抢购发生异常，稍后继续执行！', e)
             wait_some_time()
 
-    def make_reserve(self):
+    def  make_reserve(self, max_run_times):
         """商品预约"""
-        logger.info('商品名称:{}'.format(self.get_sku_title()))
-        url = 'https://yushou.jd.com/youshouinfo.action?'
-        payload = {
-            'callback': 'fetchJSON',
-            'sku': self.sku_id,
-            '_': str(int(time.time() * 1000)),
-        }
-        headers = {
-            'User-Agent': self.user_agent,
-            'Referer': 'https://item.jd.com/{}.html'.format(self.sku_id),
-        }
-        resp = self.session.get(url=url, params=payload, headers=headers)
-        resp_json = parse_json(resp.text)
-        reserve_url = resp_json.get('url')
-        self.timers.start()
-        while True:
+        sku_info = self.get_sku_info()
+        logger.info('商品名称:{}'.format(sku_info["title"]))
+        logger.info('开始预约时间:{}'.format(sku_info["reserve_start_time"]))
+        
+        
+        reserve_url = self.timers.yushou_url
+        logger.info('reserve url {}'.format(reserve_url))
+        self.timers.start_reserve()
+        retry_times = 0
+        while retry_times < max_run_times:
             try:
-                self.session.get(url='https:' + reserve_url)
+                ret = self.session.get(url='https:' + reserve_url)
                 logger.info('预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约')
                 if global_config.getRaw('messenger', 'enable') == 'true':
                     success_message = "预约成功，已获得抢购资格 / 您已成功预约过了，无需重复预约"
@@ -387,6 +384,7 @@ class JdSeckill(object):
                 break
             except Exception as e:
                 logger.error('预约失败正在重试...')
+            retry_times = retry_times + 1
 
     def get_username(self):
         """获取用户信息"""
@@ -421,6 +419,17 @@ class JdSeckill(object):
         x_data = etree.HTML(resp)
         sku_title = x_data.xpath('/html/head/title/text()')
         return sku_title[0]
+
+    def get_sku_info(self):
+        """获取商品信息"""
+        url = 'https://item.jd.com/{}.html'.format(global_config.getRaw('config', 'sku_id'))
+        resp = self.session.get(url).content
+        x_data = etree.HTML(resp)
+        #logger.info("{}".format(etree.tostring(x_data)))
+        sku_title = x_data.xpath('/html/head/title/text()')
+        sku_reserve_start_time = x_data.xpath("//*[@id='yuyue-banner']/div[2]/span[2]/em")
+        # logger.info("== {}".format(sku_reserve_start_time[0].text()))
+        return {'title':sku_title[0], 'reserve_start_time':sku_reserve_start_time}
 
     def get_seckill_url(self):
         """获取商品的抢购链接
@@ -460,7 +469,7 @@ class JdSeckill(object):
         """访问商品的抢购链接（用于设置cookie等"""
         logger.info('用户:{}'.format(self.get_username()))
         logger.info('商品名称:{}'.format(self.get_sku_title()))
-        self.timers.start()
+        self.timers.start_buy()
         self.seckill_url[self.sku_id] = self.get_seckill_url()
         logger.info('访问商品的抢购连接...')
         headers = {

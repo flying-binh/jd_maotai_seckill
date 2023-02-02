@@ -71,8 +71,6 @@ def get_random_useragent():
     :return: UserAgent字符串
     """
     return random.choice(USER_AGENTS)
-
-
 def wait_some_time():
     time.sleep(random.randint(100, 300) / 1000)
 
